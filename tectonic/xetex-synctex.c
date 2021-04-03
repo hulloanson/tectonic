@@ -9,6 +9,7 @@
 #include "core-bridge.h"
 
 #include <stdio.h>
+#include <string.h>
 #include <stdarg.h>
 
 #define SYNCTEX_VERSION 1
@@ -771,7 +772,18 @@ synctex_record_preamble(void)
 static inline int
 synctex_record_input(int32_t tag, char *name)
 {
-    int len = ttstub_fprintf(synctex_ctxt.file, "Input:%i:%s\n", tag, name);
+    char cwd[PATH_MAX + 1];
+    if (getcwd(cwd, PATH_MAX + 1) == NULL) {
+        char errmsg[100];
+        sprintf(errmsg,
+            "Failed to generate synctex info: Failed to get absolute path to current directory: %s"
+            , (errno == ERANGE || errno == ENAMETOOLONG) ? "path too long" : strerror(errno)
+        );
+        fatal_error(errmsg);
+        return -1;
+    }
+
+    int len = ttstub_fprintf(synctex_ctxt.file, "Input:%i:%s/%s\n", tag, cwd, name);
 
     if (len > 0) {
         synctex_ctxt.total_length += len;
