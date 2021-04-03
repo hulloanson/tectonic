@@ -1,4 +1,4 @@
-// Copyright 2016-2018 the Tectonic Project
+// Copyright 2016-2021 the Tectonic Project
 // Licensed under the MIT License.
 
 use std::collections::HashSet;
@@ -7,11 +7,12 @@ use std::time;
 
 use tectonic::engines::tex::TexResult;
 use tectonic::engines::NoopIoEventBackend;
-use tectonic::errors::{DefinitelySame, ErrorKind, Result};
+use tectonic::errors::DefinitelySame;
 use tectonic::io::testing::SingleInputFileIo;
 use tectonic::io::{FilesystemIo, FilesystemPrimaryInputIo, IoProvider, IoStack, MemoryIo};
 use tectonic::unstable_opts::UnstableOptions;
 use tectonic::{TexEngine, XdvipdfmxEngine};
+use tectonic_errors::{anyhow::anyhow, Result};
 use tectonic_status_base::NoopStatusBackend;
 
 #[path = "util/mod.rs"]
@@ -70,7 +71,7 @@ impl TestCase {
     }
 
     fn expect_msg(&mut self, msg: &str) -> &mut Self {
-        self.expect(Err(ErrorKind::Msg(msg.to_owned()).into()))
+        self.expect(Err(anyhow!("{}", msg)))
     }
 
     fn go(&mut self) {
@@ -117,17 +118,12 @@ impl TestCase {
             }
             let mut io = IoStack::new(io_list);
 
-            let mut events = NoopIoEventBackend::new();
+            let mut events = NoopIoEventBackend::default();
             let mut status = NoopStatusBackend::default();
 
-            let tex_res = TexEngine::new().process(
-                &mut io,
-                &mut events,
-                &mut status,
-                "plain.fmt",
-                &texname,
-                &self.unstables,
-            );
+            let tex_res = TexEngine::new()
+                .shell_escape(self.unstables.shell_escape)
+                .process(&mut io, &mut events, &mut status, "plain.fmt", &texname);
 
             if self.check_pdf && tex_res.definitely_same(&Ok(TexResult::Spotless)) {
                 XdvipdfmxEngine::new()
@@ -144,7 +140,7 @@ impl TestCase {
                         &mut status,
                         &xdvname,
                         &pdfname,
-                        &self.unstables,
+                        self.unstables.paper_size.as_ref().map(|s| s.as_ref()),
                     )
                     .unwrap();
             }
@@ -153,10 +149,11 @@ impl TestCase {
         };
 
         if !res.definitely_same(&self.expected_result) {
-            panic!(format!(
+            eprintln!(
                 "expected TeX result {:?}, got {:?}",
                 self.expected_result, res
-            ));
+            );
+            panic!("the TeX engine returned an unexpected result code");
         }
 
         // Check that outputs match expectations.
